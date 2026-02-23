@@ -8,11 +8,6 @@ import squeek.appleskin.api.event.FoodValuesEvent;
 
 /**
  * Client-only AppleSkin integration.
- *
- * This class MUST only be loaded on the client (Dist.CLIENT) because AppleSkin
- * is a client-only mod and its classes are not present on a dedicated server.
- * Registering this on the NeoForge event bus from within EnderCanteenClient
- * ensures it is never touched server-side.
  */
 @OnlyIn(Dist.CLIENT)
 public class AppleSkinCompat {

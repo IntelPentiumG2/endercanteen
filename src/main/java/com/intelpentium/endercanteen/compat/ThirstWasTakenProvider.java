@@ -64,10 +64,10 @@ public class ThirstWasTakenProvider implements IThirstProvider {
      * Falls back to 3 (purified) if no component is set (plain water).
      */
     private static int getPurity(@Nullable FluidStack fluid) {
-        if (fluid == null || fluid.isEmpty()) return 3;
+        if (fluid == null || fluid.isEmpty()) return 2;
         Integer purity = fluid.get(ThirstComponent.PURITY);
-        // Default purity when no component is present = plain water = 3 (purified)
-        return purity != null ? purity : 3;
+        // Default purity when no component is present = plain water = 2 (purified)
+        return purity != null ? purity : 2;
     }
 
     /**
