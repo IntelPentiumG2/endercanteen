@@ -4,12 +4,13 @@ import com.intelpentium.endercanteen.EnderCanteen;
 import com.mojang.serialization.Codec;
 import net.minecraft.core.GlobalPos;
 import net.minecraft.core.component.DataComponentType;
+import net.minecraft.core.registries.Registries;
+import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.network.codec.ByteBufCodecs;
 import net.minecraft.network.codec.StreamCodec;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.neoforge.registries.DeferredHolder;
 import net.neoforged.neoforge.registries.DeferredRegister;
-import net.minecraft.core.registries.Registries;
 
 public class ModDataComponents {
 
@@ -24,13 +25,19 @@ public class ModDataComponents {
                     DataComponentType.<GlobalPos>builder()
                             .persistent(GlobalPos.CODEC)
                             .networkSynchronized(StreamCodec.of(
-                                    (buf, pos) -> {
-                                        buf.writeResourceKey(pos.dimension());
-                                        buf.writeBlockPos(pos.pos());
-                                    },
-                                    buf -> GlobalPos.of(buf.readResourceKey(net.minecraft.core.registries.Registries.DIMENSION), buf.readBlockPos())
+                                    ModDataComponents::encodeGlobalPos,
+                                    ModDataComponents::decodeGlobalPos
                             ))
                             .build());
+
+    private static void encodeGlobalPos(FriendlyByteBuf buf, GlobalPos pos) {
+        buf.writeResourceKey(pos.dimension());
+        buf.writeBlockPos(pos.pos());
+    }
+
+    private static GlobalPos decodeGlobalPos(FriendlyByteBuf buf) {
+        return GlobalPos.of(buf.readResourceKey(Registries.DIMENSION), buf.readBlockPos());
+    }
 
     /**
      * Stores the current RF energy stored in the Canteen item stack.

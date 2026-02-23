@@ -1,6 +1,5 @@
 package com.intelpentium.endercanteen.compat;
 
-import com.intelpentium.endercanteen.EnderCanteen;
 import com.intelpentium.endercanteen.EnderCanteenConfig;
 import dev.ghen.thirst.content.registry.ThirstComponent;
 import dev.ghen.thirst.foundation.common.capability.IThirst;
@@ -17,29 +16,19 @@ import org.jetbrains.annotations.Nullable;
  *
  * <p>Purity scale (ThirstComponent.PURITY on FluidStack):</p>
  * <ul>
- *   <li>0 – dirty        → Nausea (config, default 8s) + Hunger (config, default 13s), no quench, +1 thirst</li>
- *   <li>1 – slightly dirty → Nausea (config, default 8s), low quench, +2 thirst</li>
- *   <li>2 – acceptable   → no effects, normal quench, +2 thirst</li>
- *   <li>3 – purified     → no effects, full quench, +2 thirst</li>
+ *   <li>0 – dirty        → Nausea (config, default 8s) + Hunger (config, default 13s), no quench, + Math.max(1, baseThirst / 2) thirst</li>
+ *   <li>1 – slightly dirty → Nausea (config, default 8s), low quench, + baseThirst thirst</li>
+ *   <li>2 – acceptable   → no effects, normal quench, + baseThirst thirst</li>
+ *   <li>3 – purified     → no effects, full quench, + baseThirst thirst</li>
  * </ul>
  */
 public class ThirstWasTakenProvider implements IThirstProvider {
 
-    private static final String[] KNOWN_MOD_IDS = {"thirst", "thirstwastaken"};
-    private static Boolean modPresent = null;
+    /** The mod ID used by Thirst Was Taken. */
+    private static final String MOD_ID = "thirst";
 
     public static boolean isModLoaded() {
-        if (modPresent == null) {
-            modPresent = false;
-            for (String id : KNOWN_MOD_IDS) {
-                if (ModList.get().isLoaded(id)) {
-                    modPresent = true;
-                    EnderCanteen.LOGGER.info("[EnderCanteen] Thirst Was Taken detected (mod id: '{}')", id);
-                    break;
-                }
-            }
-        }
-        return modPresent;
+        return ModList.get().isLoaded(MOD_ID);
     }
 
     @Override
@@ -85,8 +74,8 @@ public class ThirstWasTakenProvider implements IThirstProvider {
      * Applies status effects matching the given purity level.
      *
      * <ul>
-     *   <li>purity 0 (dirty): Nausea 3s + Hunger 7s</li>
-     *   <li>purity 1 (slightly dirty): Nausea 3s</li>
+     *   <li>purity 0 (dirty): Nausea 8s + Hunger 13s</li>
+     *   <li>purity 1 (slightly dirty): Nausea 8s</li>
      *   <li>purity 2+ : no effects</li>
      * </ul>
      */

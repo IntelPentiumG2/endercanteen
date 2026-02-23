@@ -5,6 +5,12 @@ import com.intelpentium.endercanteen.blockentity.FluidTapBlockEntity;
 import com.intelpentium.endercanteen.compat.ThirstCompat;
 import com.intelpentium.endercanteen.network.StopDrinkingPacket;
 import com.intelpentium.endercanteen.registry.ModDataComponents;
+import dev.ghen.thirst.api.ThirstHelper;
+import dev.ghen.thirst.content.registry.ThirstComponent;
+import dev.ghen.thirst.foundation.common.event.RegisterThirstValueEvent;
+import dev.ghen.thirst.foundation.common.item.DrinkableItem;
+import net.minecraft.server.MinecraftServer;
+import net.minecraft.server.level.ServerPlayer;
 import net.neoforged.neoforge.network.PacketDistributor;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
@@ -32,7 +38,7 @@ import org.jetbrains.annotations.Nullable;
 
 import java.util.List;
 
-public class CanteenItem extends dev.ghen.thirst.foundation.common.item.DrinkableItem {
+public class CanteenItem extends DrinkableItem {
 
     public CanteenItem(Properties properties) {
         super(properties);
@@ -65,13 +71,13 @@ public class CanteenItem extends dev.ghen.thirst.foundation.common.item.Drinkabl
      * so ThirstWasTaken's HUD overlay (and AppleSkin thirst preview) works.
      * Called from EnderCanteen on the NeoForge event bus.
      */
-    public static void onRegisterThirstValue(dev.ghen.thirst.foundation.common.event.RegisterThirstValueEvent event) {
+    public static void onRegisterThirstValue(RegisterThirstValueEvent event) {
         // Register in VALID_DRINKS for the AppleSkin/ThirstWasTaken thirst-preview icons.
         // ThirstWasTaken's PlayerThirstManager.drink(LivingEntityUseItemEvent.Finish) checks
         // 'instanceof DrinkableItem → return' BEFORE calling IThirst.drink() – so registering
         // here does NOT cause a double drink. Our finishUsingItem is the sole thirst source.
         // NOTE: event.addDrink() is @Deprecated with empty body – write to the map directly.
-        dev.ghen.thirst.api.ThirstHelper.VALID_DRINKS.put(
+        ThirstHelper.VALID_DRINKS.put(
                 com.intelpentium.endercanteen.registry.ModItems.CANTEEN.get(),
                 new Number[]{calcThirst(drinkMb()), calcQuenched(drinkMb())}
         );
@@ -138,14 +144,14 @@ public class CanteenItem extends dev.ghen.thirst.foundation.common.item.Drinkabl
             if (targetLevel == null || !targetLevel.isLoaded(linkedPos.pos())) {
                 player.displayClientMessage(
                         Component.translatable("item.endercanteen.canteen.out_of_range"), true);
-                if (player instanceof net.minecraft.server.level.ServerPlayer sp) sendStopPacket(sp);
+                if (player instanceof ServerPlayer sp) sendStopPacket(sp);
                 return InteractionResultHolder.fail(stack);
             }
             IFluidHandler handler = getHandlerAt(targetLevel, linkedPos.pos());
             if (handler == null || findWaterStack(handler, drinkMb(), FluidAction.SIMULATE) == null) {
                 player.displayClientMessage(
                         Component.translatable("item.endercanteen.canteen.no_water"), true);
-                if (player instanceof net.minecraft.server.level.ServerPlayer sp) sendStopPacket(sp);
+                if (player instanceof ServerPlayer sp) sendStopPacket(sp);
                 return InteractionResultHolder.fail(stack);
             }
             // RF check: if enabled, require enough energy for at least one thirst point
@@ -156,7 +162,7 @@ public class CanteenItem extends dev.ghen.thirst.foundation.common.item.Drinkabl
                     if (energy.getEnergyStored() < costPerPoint) {
                         player.displayClientMessage(
                                 Component.translatable("item.endercanteen.canteen.no_rf"), true);
-                        if (player instanceof net.minecraft.server.level.ServerPlayer sp) sendStopPacket(sp);
+                        if (player instanceof ServerPlayer sp) sendStopPacket(sp);
                         return InteractionResultHolder.fail(stack);
                     }
                 }
@@ -169,7 +175,7 @@ public class CanteenItem extends dev.ghen.thirst.foundation.common.item.Drinkabl
 
     @Override
     public @NotNull ItemStack finishUsingItem(@NotNull ItemStack stack, @NotNull Level level, @NotNull LivingEntity entity) {
-        if (!(entity instanceof net.minecraft.server.level.ServerPlayer player)) return stack;
+        if (!(entity instanceof ServerPlayer player)) return stack;
 
         GlobalPos linkedPos = stack.get(ModDataComponents.LINKED_POS.get());
         if (linkedPos == null) return stack;
@@ -327,7 +333,7 @@ public class CanteenItem extends dev.ghen.thirst.foundation.common.item.Drinkabl
                         if (!content.isEmpty() && content.getFluid().defaultFluidState().is(FluidTags.WATER)) {
                             totalWater += content.getAmount();
                             if (purity == null) {
-                                Integer p = content.get(dev.ghen.thirst.content.registry.ThirstComponent.PURITY);
+                                        Integer p = content.get(ThirstComponent.PURITY);
                                 purity = (p != null) ? p : 3;
                             }
                         }
@@ -373,7 +379,7 @@ public class CanteenItem extends dev.ghen.thirst.foundation.common.item.Drinkabl
      * Sends a StopDrinkingPacket to the client to cancel the drinking animation.
      * Called server-side whenever the drink is rejected (tank empty / unreachable).
      */
-    private static void sendStopPacket(net.minecraft.server.level.ServerPlayer player) {
+    private static void sendStopPacket(ServerPlayer player) {
         PacketDistributor.sendToPlayer(player, new StopDrinkingPacket());
     }
 
@@ -388,7 +394,7 @@ public class CanteenItem extends dev.ghen.thirst.foundation.common.item.Drinkabl
             return currentLevel;
         }
         if (currentLevel.isClientSide) return null;
-        net.minecraft.server.MinecraftServer server = currentLevel.getServer();
+        MinecraftServer server = currentLevel.getServer();
         if (server == null) return null;
         return server.getLevel(linkedPos.dimension());
     }
