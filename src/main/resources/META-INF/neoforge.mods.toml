@@ -95,8 +95,8 @@ do not directly expose a fluid handler capability.
 # Optional integration with "Thirst Was Taken"
 [[dependencies.endercanteen]]
     modId="thirst"
-    type="optional"
-    versionRange="*"
+    type="required"
+    versionRange="${thirst_was_taken_version_range}"
     ordering="AFTER"
     side="BOTH"
 
