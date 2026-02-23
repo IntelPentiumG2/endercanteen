@@ -1,0 +1,17 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "pattern": [
+    "OEO",
+    "OHO",
+    "OEO"
+  ],
+  "key": {
+    "O": { "item": "minecraft:obsidian" },
+    "E": { "item": "minecraft:ender_eye" },
+    "H": { "item": "minecraft:hopper" }
+  },
+  "result": {
+    "id": "endercanteen:fluid_tap",
+    "count": 1
+  }
+}

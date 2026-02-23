@@ -1,0 +1,26 @@
+{
+  "itemGroup.endercanteen": "Ender Canteen",
+  "item.endercanteen.canteen": "Linked Canteen",
+  "item.endercanteen.canteen.tooltip_unlinked": "§7Shift + Right-click a fluid tank to link",
+  "item.endercanteen.canteen.tooltip_linked": "§aLinked to: §f%d, %d, %d",
+  "item.endercanteen.canteen.tooltip_linked_dim": "§aLinked to: §f%d, %d, %d §7(§5%s§7)",
+  "item.endercanteen.canteen.tooltip_cross_dim": "§5✦ Cross-dimensional link active",
+  "item.endercanteen.canteen.tooltip_fluid": "§9Water: §f%d§7/§f%d mB",
+  "item.endercanteen.canteen.tooltip_purity.0": "§cPurity: Dirty",
+  "item.endercanteen.canteen.tooltip_purity.1": "§6Purity: Slightly Dirty",
+  "item.endercanteen.canteen.tooltip_purity.2": "§ePurity: Acceptable",
+  "item.endercanteen.canteen.tooltip_purity.3": "§bPurity: Purified",
+  "item.endercanteen.canteen.tooltip_out_of_range": "§cLinked tank out of range or unloaded",
+  "item.endercanteen.canteen.tooltip_drink_amount": "§7Consumes §f%d mB §7per drink",
+  "item.endercanteen.canteen.tooltip_rf": "§eRF: §f%d §7/ §f%d RF",
+  "item.endercanteen.canteen.tooltip_rf_cost": "§7Costs §e%d RF §7per drink §7(§e%d RF§7/point)",
+  "item.endercanteen.canteen.no_rf": "§cNot enough RF in the Canteen!",
+  "item.endercanteen.canteen.linked": "Canteen linked to %d, %d, %d!",
+  "item.endercanteen.canteen.not_linked": "Canteen is not linked! Sneak + Right-click a fluid tank first.",
+  "item.endercanteen.canteen.no_handler": "No fluid container found here.",
+  "item.endercanteen.canteen.no_water": "No water available in the linked tank!",
+  "item.endercanteen.canteen.out_of_range": "Linked tank is unloaded or does not exist!",
+  "item.endercanteen.canteen.drink_ok": "Drank %d mB of water.",
+  "block.endercanteen.fluid_tap": "Fluid Tap"
+}
+

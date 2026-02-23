@@ -1,0 +1,18 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "pattern": [
+    " P ",
+    "IEI",
+    "IWI"
+  ],
+  "key": {
+    "P": { "item": "minecraft:ender_eye" },
+    "E": { "item": "minecraft:ender_pearl" },
+    "I": { "item": "minecraft:iron_ingot" },
+    "W": { "item": "minecraft:water_bucket" }
+  },
+  "result": {
+    "id": "endercanteen:canteen",
+    "count": 1
+  }
+}
