@@ -30,6 +30,7 @@ import net.minecraft.world.item.context.UseOnContext;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.neoforged.neoforge.capabilities.Capabilities;
+import net.neoforged.neoforge.fluids.CauldronFluidContent;
 import net.neoforged.neoforge.fluids.FluidStack;
 import net.neoforged.neoforge.fluids.capability.IFluidHandler;
 import net.neoforged.neoforge.fluids.capability.IFluidHandler.FluidAction;
@@ -71,6 +72,7 @@ public class CanteenItem extends DrinkableItem {
      * so ThirstWasTaken's HUD overlay (and AppleSkin thirst preview) works.
      * Called from EnderCanteen on the NeoForge event bus.
      */
+    @SuppressWarnings("unused") // event parameter required by NeoForge event bus signature
     public static void onRegisterThirstValue(RegisterThirstValueEvent event) {
         // Register in VALID_DRINKS for the AppleSkin/ThirstWasTaken thirst-preview icons.
         // ThirstWasTaken's PlayerThirstManager.drink(LivingEntityUseItemEvent.Finish) checks
@@ -124,6 +126,7 @@ public class CanteenItem extends DrinkableItem {
     @Override
     public @NotNull InteractionResultHolder<ItemStack> use(@NotNull Level level, @NotNull Player player, @NotNull InteractionHand hand) {
         ItemStack stack = player.getItemInHand(hand);
+
         if (player.isShiftKeyDown()) return InteractionResultHolder.pass(stack);
 
         GlobalPos linkedPos = stack.get(ModDataComponents.LINKED_POS.get());
@@ -135,37 +138,34 @@ public class CanteenItem extends DrinkableItem {
             return InteractionResultHolder.fail(stack);
         }
 
-        // Server-side: authoritative check (supports cross-dimension via server.getLevel()).
-        // On fail, we send a StopDrinkingPacket to the client so it cancels the animation.
-        // Client-side: always start the animation optimistically; the server will stop it
-        // immediately via packet if the tank is empty/unreachable.
-        if (!level.isClientSide) {
+        // Client-side: start the animation optimistically; the server will cancel it via
+        // StopDrinkingPacket if the tank turns out to be empty or unreachable.
+        if (level.isClientSide) {
+            player.startUsingItem(hand);
+            return InteractionResultHolder.consume(stack);
+        }
+
+        // Server-side authoritative pre-checks --------------------------------
+        if (player instanceof ServerPlayer sp) {
             Level targetLevel = getTargetLevel(level, linkedPos);
             if (targetLevel == null || !targetLevel.isLoaded(linkedPos.pos())) {
                 player.displayClientMessage(
                         Component.translatable("item.endercanteen.canteen.out_of_range"), true);
-                if (player instanceof ServerPlayer sp) sendStopPacket(sp);
+                sendStopPacket(sp);
                 return InteractionResultHolder.fail(stack);
             }
             IFluidHandler handler = getHandlerAt(targetLevel, linkedPos.pos());
-            if (handler == null || findWaterStack(handler, drinkMb(), FluidAction.SIMULATE) == null) {
+            if (handler == null || findWaterStack(handler, drinkMb(), FluidAction.SIMULATE, targetLevel, linkedPos.pos()) == null) {
                 player.displayClientMessage(
                         Component.translatable("item.endercanteen.canteen.no_water"), true);
-                if (player instanceof ServerPlayer sp) sendStopPacket(sp);
+                sendStopPacket(sp);
                 return InteractionResultHolder.fail(stack);
             }
-            // RF check: if enabled, require enough energy for at least one thirst point
-            if (EnderCanteenConfig.RF_ENABLED.get()) {
-                int costPerPoint = EnderCanteenConfig.RF_COST_PER_THIRST_POINT.get();
-                if (costPerPoint > 0) {
-                    CanteenEnergyStorage energy = new CanteenEnergyStorage(stack);
-                    if (energy.getEnergyStored() < costPerPoint) {
-                        player.displayClientMessage(
-                                Component.translatable("item.endercanteen.canteen.no_rf"), true);
-                        if (player instanceof ServerPlayer sp) sendStopPacket(sp);
-                        return InteractionResultHolder.fail(stack);
-                    }
-                }
+            if (!hasEnoughRf(stack)) {
+                player.displayClientMessage(
+                        Component.translatable("item.endercanteen.canteen.no_rf"), true);
+                sendStopPacket(sp);
+                return InteractionResultHolder.fail(stack);
             }
         }
 
@@ -180,7 +180,6 @@ public class CanteenItem extends DrinkableItem {
         GlobalPos linkedPos = stack.get(ModDataComponents.LINKED_POS.get());
         if (linkedPos == null) return stack;
 
-        // Cross-dimension support: look up the target level on the server
         Level targetLevel = getTargetLevel(level, linkedPos);
         if (targetLevel == null || !targetLevel.isLoaded(linkedPos.pos())) {
             player.displayClientMessage(
@@ -195,7 +194,7 @@ public class CanteenItem extends DrinkableItem {
             return stack;
         }
 
-        FluidStack drained = findWaterStack(handler, drinkMb(), FluidAction.EXECUTE);
+        FluidStack drained = findWaterStack(handler, drinkMb(), FluidAction.EXECUTE, targetLevel, linkedPos.pos());
         if (drained == null || drained.isEmpty()) {
             player.displayClientMessage(
                     Component.translatable("item.endercanteen.canteen.no_water"), true);
@@ -203,48 +202,67 @@ public class CanteenItem extends DrinkableItem {
             return stack;
         }
 
-        int thirst   = calcThirst(drained.getAmount());
-        int quenched = calcQuenched(drained.getAmount());
+        int effectiveMb = Math.min(drained.getAmount(), drinkMb());
+        int thirst   = calcThirst(effectiveMb);
+        int quenched = calcQuenched(effectiveMb);
 
-        // RF cost: consume RF proportional to thirst + quenched points restored
-        if (EnderCanteenConfig.RF_ENABLED.get()) {
-            int costPerPoint = EnderCanteenConfig.RF_COST_PER_THIRST_POINT.get();
-            if (costPerPoint > 0) {
-                int totalPoints = thirst + quenched;
-                int totalCost = totalPoints * costPerPoint;
-                CanteenEnergyStorage energy = new CanteenEnergyStorage(stack);
-                // Extract what we can; if not enough energy, abort the drink
-                int extracted = energy.extractEnergy(totalCost, true);
-                if (extracted < costPerPoint) {
-                    // Not enough RF for even one point – reject
-                    player.displayClientMessage(
-                            Component.translatable("item.endercanteen.canteen.no_rf"), true);
-                    // Refund the fluid
-                    handler.fill(drained, FluidAction.EXECUTE);
-                    sendStopPacket(player);
-                    return stack;
-                }
-                // Recalculate how many points we can afford
-                int affordablePoints = extracted / costPerPoint;
-                if (affordablePoints < thirst + quenched) {
-                    // Partially limit – scale thirst and quenched to affordable amount
-                    // Simple approach: reduce quenched first, then thirst
-                    int newTotal = affordablePoints;
-                    quenched = Math.min(quenched, newTotal);
-                    thirst = Math.min(thirst, newTotal - quenched);
-                    int actualCost = (thirst + quenched) * costPerPoint;
-                    energy.extractEnergy(actualCost, false);
-                } else {
-                    energy.extractEnergy(totalCost, false);
-                }
-            }
+        int[] adjusted = applyRfCost(stack, handler, drained, thirst, quenched);
+        if (adjusted == null) {
+            // Not enough RF – fluid already refunded inside applyRfCost
+            player.displayClientMessage(
+                    Component.translatable("item.endercanteen.canteen.no_rf"), true);
+            sendStopPacket(player);
+            return stack;
+        }
+        thirst   = adjusted[0];
+        quenched = adjusted[1];
+
+        ThirstCompat.addThirst(player, thirst, quenched, drained, targetLevel, linkedPos.pos());
+        player.playSound(SoundEvents.GENERIC_DRINK, 1.0f, 1.0f + (float)(Math.random() * 0.4 - 0.2));
+        return stack;
+    }
+
+    // -------------------------------------------------------------------------
+    // RF helpers
+    // -------------------------------------------------------------------------
+
+    /** Returns true when the canteen has enough RF for at least one thirst point (or RF is disabled). */
+    private static boolean hasEnoughRf(ItemStack stack) {
+        if (!EnderCanteenConfig.RF_ENABLED.get()) return true;
+        int costPerPoint = EnderCanteenConfig.RF_COST_PER_THIRST_POINT.get();
+        if (costPerPoint <= 0) return true;
+        return new CanteenEnergyStorage(stack).getEnergyStored() >= costPerPoint;
+    }
+
+    /**
+     * Consumes RF for the drink. Returns the adjusted [thirst, quenched] array, or
+     * {@code null} if there is not enough RF (in which case the fluid is refunded into
+     * {@code handler}).
+     */
+    private static int @Nullable [] applyRfCost(ItemStack stack, IFluidHandler handler,
+                                     FluidStack drained, int thirst, int quenched) {
+        if (!EnderCanteenConfig.RF_ENABLED.get()) return new int[]{thirst, quenched};
+        int costPerPoint = EnderCanteenConfig.RF_COST_PER_THIRST_POINT.get();
+        if (costPerPoint <= 0) return new int[]{thirst, quenched};
+
+        CanteenEnergyStorage energy = new CanteenEnergyStorage(stack);
+        int totalCost = (thirst + quenched) * costPerPoint;
+        int extracted = energy.extractEnergy(totalCost, true); // simulate
+
+        if (extracted < costPerPoint) {
+            handler.fill(drained, FluidAction.EXECUTE); // refund fluid
+            return null;
         }
 
-        ThirstCompat.addThirst(player, thirst, quenched, drained);
-
-        player.playSound(SoundEvents.GENERIC_DRINK,
-                1.0f, 1.0f + (float)(Math.random() * 0.4 - 0.2));
-        return stack;
+        int affordablePoints = extracted / costPerPoint;
+        int totalPoints = thirst + quenched;
+        if (affordablePoints < totalPoints) {
+            // Scale down: reduce quenched first, then thirst
+            quenched = Math.min(quenched, affordablePoints);
+            thirst   = Math.min(thirst,   affordablePoints - quenched);
+        }
+        energy.extractEnergy((thirst + quenched) * costPerPoint, false); // commit
+        return new int[]{thirst, quenched};
     }
 
     // -------------------------------------------------------------------------
@@ -307,68 +325,81 @@ public class CanteenItem extends DrinkableItem {
     public void appendHoverText(@NotNull ItemStack stack, @NotNull TooltipContext ctx,
                                 @NotNull List<Component> tooltip, @NotNull TooltipFlag flag) {
         GlobalPos pos = stack.get(ModDataComponents.LINKED_POS.get());
-        if (pos != null) {
-            Level level = ctx.level();
-            boolean sameDimension = level != null && level.dimension().equals(pos.dimension());
-
-            if (sameDimension) {
-                tooltip.add(Component.translatable("item.endercanteen.canteen.tooltip_linked",
-                        pos.pos().getX(), pos.pos().getY(), pos.pos().getZ()));
-            } else {
-                tooltip.add(Component.translatable("item.endercanteen.canteen.tooltip_linked_dim",
-                        pos.pos().getX(), pos.pos().getY(), pos.pos().getZ(),
-                        pos.dimension().location().toString()));
-                tooltip.add(Component.translatable("item.endercanteen.canteen.tooltip_cross_dim"));
-            }
-
-            // Show fluid info only when chunk is loaded in the same dimension (client-side)
-            if (level != null && sameDimension && level.isLoaded(pos.pos())) {
-                IFluidHandler handler = getHandlerAt(level, pos.pos());
-                if (handler != null) {
-                    int totalWater = 0;
-                    int totalCapacity = 0;
-                    Integer purity = null;
-                    for (int i = 0; i < handler.getTanks(); i++) {
-                        FluidStack content = handler.getFluidInTank(i);
-                        if (!content.isEmpty() && content.getFluid().defaultFluidState().is(FluidTags.WATER)) {
-                            totalWater += content.getAmount();
-                            if (purity == null) {
-                                        Integer p = content.get(ThirstComponent.PURITY);
-                                purity = (p != null) ? p : 3;
-                            }
-                        }
-                        totalCapacity += handler.getTankCapacity(i);
-                    }
-                    if (totalCapacity > 0) {
-                        tooltip.add(Component.translatable("item.endercanteen.canteen.tooltip_fluid",
-                                totalWater, totalCapacity));
-                    }
-                    if (purity != null) {
-                        tooltip.add(Component.translatable(
-                                "item.endercanteen.canteen.tooltip_purity." + purity));
-                    }
-                }
-            }
-        } else {
+        if (pos == null) {
             tooltip.add(Component.translatable("item.endercanteen.canteen.tooltip_unlinked"));
+            tooltip.add(Component.translatable("item.endercanteen.canteen.tooltip_drink_amount", drinkMb()));
+            return;
         }
-        tooltip.add(Component.translatable("item.endercanteen.canteen.tooltip_drink_amount", drinkMb()));
 
-        // RF / Energy tooltip
-        if (EnderCanteenConfig.RF_ENABLED.get()) {
-            CanteenEnergyStorage energy = new CanteenEnergyStorage(stack);
-            int stored = energy.getEnergyStored();
-            int capacity = energy.getMaxEnergyStored();
-            tooltip.add(Component.translatable("item.endercanteen.canteen.tooltip_rf",
-                    stored, capacity));
-            int costPerPoint = EnderCanteenConfig.RF_COST_PER_THIRST_POINT.get();
-            if (costPerPoint > 0) {
-                int drinkPoints = calcThirst(drinkMb()) + calcQuenched(drinkMb());
-                int drinkCost = drinkPoints * costPerPoint;
-                tooltip.add(Component.translatable("item.endercanteen.canteen.tooltip_rf_cost",
-                        drinkCost, costPerPoint));
+        Level level = ctx.level();
+        boolean sameDimension = level != null && level.dimension().equals(pos.dimension());
+
+        if (sameDimension) {
+            tooltip.add(Component.translatable("item.endercanteen.canteen.tooltip_linked",
+                    pos.pos().getX(), pos.pos().getY(), pos.pos().getZ()));
+        } else {
+            tooltip.add(Component.translatable("item.endercanteen.canteen.tooltip_linked_dim",
+                    pos.pos().getX(), pos.pos().getY(), pos.pos().getZ(),
+                    pos.dimension().location().toString()));
+            tooltip.add(Component.translatable("item.endercanteen.canteen.tooltip_cross_dim"));
+        }
+
+        if (level != null && sameDimension && level.isLoaded(pos.pos())) {
+            appendFluidTooltip(tooltip, level, pos.pos());
+        }
+
+        tooltip.add(Component.translatable("item.endercanteen.canteen.tooltip_drink_amount", drinkMb()));
+        appendRfTooltip(stack, tooltip);
+    }
+
+    private static void appendFluidTooltip(List<Component> tooltip, Level level, BlockPos pos) {
+        IFluidHandler handler = getHandlerAt(level, pos);
+        if (handler == null) return;
+
+        int totalWater = 0;
+        int totalCapacity = 0;
+        Integer purity = null;
+
+        for (int i = 0; i < handler.getTanks(); i++) {
+            FluidStack content = handler.getFluidInTank(i);
+            totalCapacity += handler.getTankCapacity(i);
+            if (content.isEmpty() || !content.getFluid().defaultFluidState().is(FluidTags.WATER)) continue;
+
+            totalWater += content.getAmount();
+            if (purity != null) continue;
+
+            Integer p = content.get(ThirstComponent.PURITY);
+            if (p != null) {
+                purity = p;
+            } else {
+                // No FluidStack tag → read BLOCK_PURITY from BlockState (cauldron etc.)
+                int bp = dev.ghen.thirst.content.purity.WaterPurity.getBlockPurity(level.getBlockState(pos));
+                purity = (bp >= 0) ? bp : 2;
             }
         }
+
+        if (totalCapacity > 0) {
+            tooltip.add(Component.translatable("item.endercanteen.canteen.tooltip_fluid",
+                    totalWater, totalCapacity));
+        }
+        if (purity != null) {
+            tooltip.add(Component.translatable("item.endercanteen.canteen.tooltip_purity." + purity));
+        }
+    }
+
+    private static void appendRfTooltip(ItemStack stack, List<Component> tooltip) {
+        if (!EnderCanteenConfig.RF_ENABLED.get()) return;
+
+        CanteenEnergyStorage energy = new CanteenEnergyStorage(stack);
+        tooltip.add(Component.translatable("item.endercanteen.canteen.tooltip_rf",
+                energy.getEnergyStored(), energy.getMaxEnergyStored()));
+
+        int costPerPoint = EnderCanteenConfig.RF_COST_PER_THIRST_POINT.get();
+        if (costPerPoint <= 0) return;
+
+        int drinkCost = (calcThirst(drinkMb()) + calcQuenched(drinkMb())) * costPerPoint;
+        tooltip.add(Component.translatable("item.endercanteen.canteen.tooltip_rf_cost",
+                drinkCost, costPerPoint));
     }
 
     // -------------------------------------------------------------------------
@@ -399,15 +430,87 @@ public class CanteenItem extends DrinkableItem {
         return server.getLevel(linkedPos.dimension());
     }
 
+    /**
+     * Drains water from the handler, returning the drained FluidStack (capped at mb).
+     *
+     * <p>For blocks backed by {@link CauldronFluidContent} (vanilla/modded cauldrons) we
+     * manipulate the BlockState directly instead of going through {@code CauldronWrapper}.
+     * {@code CauldronWrapper.updateLevel()} calls {@code block.defaultBlockState()} and then
+     * sets only the level property – silently dropping any extra BlockState properties added
+     * by mods (e.g. ThirstWasTaken's BLOCK_PURITY), which empties the cauldron completely.
+     *
+     * <p>For all other handlers the standard {@code drain(int, FluidAction)} path is used,
+     * with a doubling-probe SIMULATE fallback for handlers that use coarse drain increments.
+     */
     @Nullable
-    private static FluidStack findWaterStack(IFluidHandler handler, int mb, FluidAction action) {
+    private static FluidStack findWaterStack(IFluidHandler handler, int mb, FluidAction action,
+                                             @Nullable Level level, @Nullable BlockPos pos) {
+        // --- Cauldron fast-path: manipulate BlockState directly ---
+        if (level != null && pos != null) {
+            net.minecraft.world.level.block.state.BlockState state = level.getBlockState(pos);
+            CauldronFluidContent cauldron = CauldronFluidContent.getForBlock(state.getBlock());
+            if (cauldron != null && cauldron.fluid.defaultFluidState().is(FluidTags.WATER)) {
+                int currentLevel = cauldron.currentLevel(state);
+                if (currentLevel <= 0) return null;
+
+                int oneLevelMb = cauldron.totalAmount / cauldron.maxLevel;
+                if (oneLevelMb <= 0) return null;
+
+                if (action.execute()) {
+                    int newLevel = currentLevel - 1;
+                    net.minecraft.world.level.block.state.BlockState newState;
+                    if (newLevel == 0) {
+                        newState = net.minecraft.world.level.block.Blocks.CAULDRON.defaultBlockState();
+                    } else if (cauldron.levelProperty != null) {
+                        newState = state.setValue(cauldron.levelProperty, newLevel); // preserves BLOCK_PURITY and all other properties
+                    } else {
+                        return null; // no level property – cannot partially drain
+                    }
+                    level.setBlockAndUpdate(pos, newState);
+                }
+                return new FluidStack(cauldron.fluid, Math.min(oneLevelMb, mb));
+            }
+        }
+
+        // --- Normal handler path ---
         for (int i = 0; i < handler.getTanks(); i++) {
             FluidStack content = handler.getFluidInTank(i);
             if (content.isEmpty()) continue;
             if (!content.getFluid().defaultFluidState().is(FluidTags.WATER)) continue;
-            FluidStack request = content.copyWithAmount(Math.min(mb, content.getAmount()));
-            FluidStack result = handler.drain(request, action);
-            if (!result.isEmpty()) return result;
+
+            // Try exactly mb mB first (works for fine-grained handlers like Create tanks).
+            FluidStack result = handler.drain(mb, action);
+            if (!result.isEmpty() && result.getFluid().defaultFluidState().is(FluidTags.WATER)) {
+                return result;
+            }
+
+            // Coarse-increment fallback: find the minimum drainable amount via doubling
+            // SIMULATE probes. Probe up to capacity*2 so we don't miss increments equal
+            // to capacity (probe jumps 512 → 1024 while capacity = 1000).
+            int capacity = handler.getTankCapacity(i);
+            int probe = 1;
+            int minIncrement = 0;
+            while (probe <= (long) capacity * 2) {
+                FluidStack probeResult = handler.drain(probe, FluidAction.SIMULATE);
+                if (!probeResult.isEmpty() && probeResult.getFluid().defaultFluidState().is(FluidTags.WATER)) {
+                    minIncrement = probeResult.getAmount();
+                    break;
+                }
+                probe = (probe >= Integer.MAX_VALUE / 2) ? Integer.MAX_VALUE : probe * 2;
+            }
+            if (minIncrement <= 0) continue;
+
+            if (action.execute()) {
+                FluidStack drained = handler.drain(minIncrement, FluidAction.EXECUTE);
+                if (!drained.isEmpty() && drained.getFluid().defaultFluidState().is(FluidTags.WATER)) {
+                    return drained.copyWithAmount(Math.min(drained.getAmount(), mb));
+                }
+            } else {
+                FluidStack sim = handler.drain(minIncrement, FluidAction.SIMULATE);
+                if (!sim.isEmpty() && sim.getFluid().defaultFluidState().is(FluidTags.WATER)) {
+                    return sim.copyWithAmount(Math.min(sim.getAmount(), mb));
+                }
+            }
         }
         return null;
     }

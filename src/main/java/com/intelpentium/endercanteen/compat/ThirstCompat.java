@@ -1,6 +1,8 @@
 package com.intelpentium.endercanteen.compat;
 
+import net.minecraft.core.BlockPos;
 import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.level.Level;
 import net.neoforged.neoforge.fluids.FluidStack;
 import org.jetbrains.annotations.Nullable;
 
@@ -25,17 +27,8 @@ public class ThirstCompat {
         return instance;
     }
 
-    public static void addThirst(Player player, int baseThirst, int baseQuenched, @Nullable FluidStack fluid) {
-        get().addThirst(player, baseThirst, baseQuenched, fluid);
-    }
-
-    public static boolean needsDrink(Player player) {
-        return get().needsDrink(player);
-    }
-
-    public static void applyPurityEffects(Player player, FluidStack fluid) {
-        if (ThirstWasTakenProvider.isModLoaded()) {
-            ThirstWasTakenProvider.applyPurityEffects(player, fluid);
-        }
+    public static void addThirst(Player player, int baseThirst, int baseQuenched, @Nullable FluidStack fluid,
+                                 @Nullable Level level, @Nullable BlockPos sourcePos) {
+        get().addThirst(player, baseThirst, baseQuenched, fluid, level, sourcePos);
     }
 }

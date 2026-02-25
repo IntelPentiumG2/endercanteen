@@ -1,12 +1,15 @@
 package com.intelpentium.endercanteen.compat;
 
 import com.intelpentium.endercanteen.EnderCanteenConfig;
+import dev.ghen.thirst.content.purity.WaterPurity;
 import dev.ghen.thirst.content.registry.ThirstComponent;
 import dev.ghen.thirst.foundation.common.capability.IThirst;
 import dev.ghen.thirst.foundation.common.capability.ModAttachment;
+import net.minecraft.core.BlockPos;
 import net.minecraft.world.effect.MobEffectInstance;
 import net.minecraft.world.effect.MobEffects;
 import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.level.Level;
 import net.neoforged.fml.ModList;
 import net.neoforged.neoforge.fluids.FluidStack;
 import org.jetbrains.annotations.Nullable;
@@ -32,11 +35,10 @@ public class ThirstWasTakenProvider implements IThirstProvider {
     }
 
     @Override
-    public void addThirst(Player player, int baseThirst, int baseQuenched, @Nullable FluidStack fluid) {
-        int purity = getPurity(fluid);
+    public void addThirst(Player player, int baseThirst, int baseQuenched, @Nullable FluidStack fluid,
+                          @Nullable Level level, @Nullable BlockPos sourcePos) {
+        int purity = getPurity(fluid, level, sourcePos);
 
-        // Scale thirst and quenched by purity level
-        // baseThirst/baseQuenched are already scaled by mB (from CanteenItem.calcThirst/calcQuenched)
         int thirst;
         int quenched;
         switch (purity) {
@@ -49,38 +51,36 @@ public class ThirstWasTakenProvider implements IThirstProvider {
         data.drink(thirst, quenched);
         data.updateThirstData(player);
 
-        // Apply purity effects (mirrors what MixinPlayer does for items)
         applyPurityEffects(player, purity);
     }
 
-    @Override
-    public boolean needsDrink(Player player) {
-        IThirst data = player.getData(ModAttachment.PLAYER_THIRST.get());
-        return data.getThirst() < 20;
-    }
-
     /**
-     * Reads the purity from the FluidStack's ThirstComponent.PURITY DataComponent.
-     * Falls back to 3 (purified) if no component is set (plain water).
+     * Reads the purity for a drink using the following priority:
+     * <ol>
+     *   <li>ThirstComponent.PURITY DataComponent on the FluidStack (e.g. water stored in a
+     *       Create tank that preserved purity tags).</li>
+     *   <li>WaterPurity.BLOCK_PURITY BlockState property at the source position
+     *       (set by ThirstWasTaken's MixinLayeredCauldronBlock on cauldrons).</li>
+     *   <li>Default: 2 (acceptable) – matches ThirstWasTaken's default for untagged water.</li>
+     * </ol>
      */
-    private static int getPurity(@Nullable FluidStack fluid) {
-        if (fluid == null || fluid.isEmpty()) return 2;
-        Integer purity = fluid.get(ThirstComponent.PURITY);
-        // Default purity when no component is present = plain water = 2 (purified)
-        return purity != null ? purity : 2;
-    }
+    public static int getPurity(@Nullable FluidStack fluid, @Nullable Level level, @Nullable BlockPos sourcePos) {
+        // 1. FluidStack tag takes priority
+        if (fluid != null && !fluid.isEmpty()) {
+            Integer p = fluid.get(ThirstComponent.PURITY);
+            if (p != null) return p;
+        }
 
-    /**
-     * Applies status effects matching the given purity level.
-     *
-     * <ul>
-     *   <li>purity 0 (dirty): Nausea 8s + Hunger 13s</li>
-     *   <li>purity 1 (slightly dirty): Nausea 8s</li>
-     *   <li>purity 2+ : no effects</li>
-     * </ul>
-     */
-    public static void applyPurityEffects(Player player, FluidStack fluid) {
-        applyPurityEffects(player, getPurity(fluid));
+        // 2. Read BLOCK_PURITY property from the source block's BlockState (cauldron etc.)
+        //    WaterPurity.getBlockPurity(BlockState) returns (BLOCK_PURITY value - 1), or -1
+        //    if the block has no such property.
+        if (level != null && sourcePos != null) {
+            int blockPurity = WaterPurity.getBlockPurity(level.getBlockState(sourcePos));
+            if (blockPurity >= 0) return blockPurity;
+        }
+
+        // 3. Fallback: acceptable
+        return 2;
     }
 
     private static void applyPurityEffects(Player player, int purity) {
@@ -103,4 +103,3 @@ public class ThirstWasTakenProvider implements IThirstProvider {
         }
     }
 }
-
