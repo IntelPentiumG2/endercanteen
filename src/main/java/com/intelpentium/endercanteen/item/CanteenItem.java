@@ -456,8 +456,12 @@ public class CanteenItem extends DrinkableItem {
                 int oneLevelMb = cauldron.totalAmount / cauldron.maxLevel;
                 if (oneLevelMb <= 0) return null;
 
+                boolean drainFull = EnderCanteenConfig.CAULDRON_DRAIN_FULL.get();
+                int levelsToRemove = drainFull ? currentLevel : 1;
+                int drainedMb = Math.min(oneLevelMb * levelsToRemove, mb);
+
                 if (action.execute()) {
-                    int newLevel = currentLevel - 1;
+                    int newLevel = currentLevel - levelsToRemove;
                     net.minecraft.world.level.block.state.BlockState newState;
                     if (newLevel == 0) {
                         newState = net.minecraft.world.level.block.Blocks.CAULDRON.defaultBlockState();
@@ -468,7 +472,7 @@ public class CanteenItem extends DrinkableItem {
                     }
                     level.setBlockAndUpdate(pos, newState);
                 }
-                return new FluidStack(cauldron.fluid, Math.min(oneLevelMb, mb));
+                return new FluidStack(cauldron.fluid, drainedMb);
             }
         }
 

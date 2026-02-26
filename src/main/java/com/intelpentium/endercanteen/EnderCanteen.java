@@ -2,6 +2,7 @@ package com.intelpentium.endercanteen;
 
 import com.intelpentium.endercanteen.compat.ThirstCompat;
 import com.intelpentium.endercanteen.compat.ThirstWasTakenProvider;
+import com.intelpentium.endercanteen.dispenser.CauldronDispenserBehavior;
 import com.intelpentium.endercanteen.item.CanteenEnergyStorage;
 import com.intelpentium.endercanteen.item.CanteenItem;
 import com.intelpentium.endercanteen.network.StopDrinkingPacket;
@@ -41,6 +42,7 @@ public class EnderCanteen {
     public static final DeferredItem<BlockItem> FLUID_TAP_ITEM =
             ModItems.ITEMS.registerSimpleBlockItem("fluid_tap", ModBlocks.FLUID_TAP);
 
+    @SuppressWarnings("unused") // held for registration side-effect only
     public static final DeferredHolder<CreativeModeTab, CreativeModeTab> CANTEEN_TAB =
             CREATIVE_MODE_TABS.register("canteen_tab", () -> CreativeModeTab.builder()
                     .title(Component.translatable("itemGroup.endercanteen"))
@@ -73,6 +75,7 @@ public class EnderCanteen {
 
     private void commonSetup(FMLCommonSetupEvent event) {
         ThirstCompat.init();
+        event.enqueueWork(CauldronDispenserBehavior::register);
         LOGGER.info("[EnderCanteen] Initialised. Thirst Was Taken present: {}",
                 ThirstWasTakenProvider.isModLoaded());
     }

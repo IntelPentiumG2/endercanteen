@@ -17,6 +17,12 @@ public class EnderCanteenConfig {
     public static final ModConfigSpec.IntValue RF_CAPACITY;
     public static final ModConfigSpec.IntValue RF_COST_PER_THIRST_POINT;
 
+    // Dispenser
+    public static final ModConfigSpec.BooleanValue DISPENSER_CAULDRON_INTERACTION;
+
+    // Cauldron drinking
+    public static final ModConfigSpec.BooleanValue CAULDRON_DRAIN_FULL;
+
     static {
         ModConfigSpec.Builder builder = new ModConfigSpec.Builder();
 
@@ -60,6 +66,22 @@ public class EnderCanteenConfig {
         RF_COST_PER_THIRST_POINT = builder
                 .comment("RF/FE consumed per restored thirst+quench point combined. Default: 1000")
                 .defineInRange("rfCostPerThirstPoint", 1_000, 0, 1_000_000);
+
+        builder.pop();
+
+        builder.comment("Cauldron drinking settings").push("cauldron");
+
+        CAULDRON_DRAIN_FULL = builder
+                .comment("If true, drinking from a linked cauldron drains it completely instead of one level at a time. Default: true")
+                .define("cauldronDrainFull", true);
+
+        builder.pop();
+
+        builder.comment("Dispenser behaviour settings").push("dispenser");
+
+        DISPENSER_CAULDRON_INTERACTION = builder
+                .comment("If true, dispensers can fill cauldrons with water buckets and drain them with empty buckets. Default: true")
+                .define("dispenserCauldronInteraction", true);
 
         builder.pop();
         SPEC = builder.build();
